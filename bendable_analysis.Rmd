@@ -1,0 +1,986 @@
+---
+title: "bendable_analyses"
+date: "2025-04-16"
+output: 
+  html_document:
+    theme: flatly          
+    highlight: tango       
+    toc: true               
+    toc_depth: 2            
+    toc_float: true         
+    number_sections: true   
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#install.packages("tidyverse")
+#install.packages("skimr")
+#install.packages("psych")
+#install.packages("kableExtra")
+#install.packages("scales")
+#install.packages("wordcloud")
+#install.packages("tidytext")
+#install.packages("RColorBrewer")
+#install.packages("topicmodels")
+#install.packages("reshape2")
+library(tidyverse)
+library(skimr)
+library(psych)
+library(kableExtra)
+library(scales)
+library(wordcloud)
+library(tidytext)
+library(RColorBrewer)
+library(topicmodels)
+library(reshape2)
+
+#read in data
+
+pps <- read_csv("data/PPS Data for Osmind-Clean - PPS Data.csv")
+pss1 <- read_csv("data/PSS1 Data for Osmind-Clean - PSS1 Data.csv")
+pss2 <- read_csv("data/PSS2 Data for Osmind-Clean - PSS2 Data.csv")
+participant_info <- read_csv("data/Research Participant Info for Osmind-Clean - Sheet5.csv")
+screen_a1 <- read_csv("data/Screening Application (A01) data for Osmind-Clean - A01 Data.csv") 
+screen_b1 <- read_csv("data/Screening Interview (B01) for Osmind-Clean - B01 Data.csv")
+
+
+#process
+
+screen_a1_working <- screen_a1 %>% 
+  mutate(a01_pronouns = as.factor(a01_pronouns),
+         a01_state = as.factor(a01_state),
+         a01_legalsex = as.factor(a01_legalsex),
+         a01_birthsex = as.factor(a01_birthsex),
+         a01_race = as.factor(a01_race),
+         a01_ethnic = as.factor(a01_ethnic),
+         a01_education = as.factor(a01_educ))
+
+master <- pss2 %>% 
+  left_join(screen_a1_working, by = c("id")) %>% 
+  left_join(pss1, by = c("id")) %>% 
+  left_join(pps, by = c("id"))
+
+who_a01_response_map <- c(
+  "At no time" = 0,
+  "Some of the time" = 1,
+  "Less than half of the time" = 2,
+  "More than half of the time" = 3,
+  "Most of the time" = 4,
+  "All the time" = 5
+) 
+
+who_response_map <- c(
+  "At no time" = 0,
+  "Some of the time" = 1,
+  "Less than half the time" = 2,
+  "More than half the time" = 3,
+  "Most of the time" = 4,
+  "All the time" = 5
+)
+
+phq_response_map <- c(
+  "Not at all" = 0,
+  "Several days" = 1,
+  "More than half of the days" = 2,
+  "Nearly every day" = 3
+)
+
+gad_response_map <- c(
+  "Not at all" = 0,
+  "Several days" = 1,
+  "More than half of the days" = 2,
+  "Nearly every day" = 3
+)
+
+a01_who_items <- paste0("a01_who", 1:5)
+pss1_who_items <- paste0("pss1_who", 1:5)
+pss2_who_items <- paste0("pss2_who", 1:5)
+a01_phq_items <- paste0("a01_phq", 1:8)
+pss1_phq_items <- paste0("pss1_phq", 1:8)
+pss2_phq_items <- paste0("pss2_phq", 1:8)
+a01_gad_items <- paste0("a01_gad", 1:7)
+pss1_gad_items <- paste0("pss1_gad", 1:7)
+pss2_gad_items <- paste0("pss2_gad", 1:7)
+
+master <- master %>%
+  mutate(across(all_of(a01_who_items), ~ recode(. , !!!who_response_map), .names = "{.col}_num"),
+         across(all_of(a01_phq_items), ~ recode(. , !!!phq_response_map), .names = "{.col}_num"),
+         across(all_of(a01_gad_items), ~ recode(. , !!!gad_response_map), .names = "{.col}_num"),
+         across(all_of(pss1_who_items), ~ recode(. , !!!who_response_map), .names = "{.col}_num"),
+         across(all_of(pss2_who_items), ~recode(. , !!!who_response_map), .names = "{.col}_num"),
+         across(all_of(pss1_phq_items), ~recode(. , !!!phq_response_map), .names = "{.col}_num"),
+         across(all_of(pss2_phq_items), ~recode(. , !!!phq_response_map), .names = "{.col}_num"),
+         across(all_of(pss1_gad_items), ~recode(. , !!!gad_response_map), .names = "{.col}_num"),
+         across(all_of(pss2_gad_items), ~recode(. , !!!gad_response_map), .names = "{.col}_num")) 
+
+#get totall scores for survyes
+
+master <- master %>% 
+  mutate(
+         pss1_phq_total = rowSums(select(., pss1_phq1_num:pss1_phq8_num), na.rm = TRUE),
+         pss2_phq_total = rowSums(select(., pss2_phq1_num:pss2_phq8_num), na.rm = TRUE),
+         pss1_gad_total = rowSums(select(., pss1_gad1_num:pss1_gad7_num), na.rm = TRUE),
+         pss2_gad_total = rowSums(select(., pss2_gad1_num:pss2_gad7_num), na.rm = TRUE),
+         pss1_who_total = rowSums(select(., pss1_who1_num:pss1_who5_num), na.rm = TRUE),
+         pss2_who_total = rowSums(select(., pss2_who1_num:pss2_who5_num), na.rm = TRUE),
+         )
+```
+
+Below is a summary of participant demographics, psilocybin experience, mental health experience, medical background, and baseline scores on three questionnaires: the WHO-5, PHQ-9, and GAD-7. The summary is organized into two tabs corresponding to two distinct samples (1) participants who completed the screening process (n = 308), and those who participated in treatment and completed follow-up assessments (n = 88)
+
+## Demographics {.tabset}
+
+### Screened participants (n = 308)
+
+```{r}
+
+#all screened participants (n = 308)
+
+summary(screen_a1_working$a01_age)
+
+#legal sex
+screen_a1_working %>%
+  count(a01_legalsex) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(`Legal Sex` = a01_legalsex, N = n) %>%
+  kable(format = "html", caption = "Legal Sex Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE)
+
+#Birth sex
+screen_a1_working %>%
+  count(a01_birthsex) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(`Birth Sex` = a01_birthsex, N = n) %>%
+  kable(format = "html", caption = "Birth Sex Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE)
+
+#pronouns
+screen_a1_working %>%
+  count(a01_pronouns) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(`Pronouns` = a01_pronouns, N = n) %>%
+  kable(format = "html", caption = "Pronouns Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE)
+
+
+
+# Gender Identity
+screen_a1_working %>%
+  count(a01_gender) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(`Gender Identity` = a01_gender, N = n) %>%
+  kable(format = "html", caption = "Gender Identity Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Race
+screen_a1_working %>%
+  count(a01_race) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Race = a01_race, N = n) %>%
+  kable(format = "html", caption = "Race Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Ethnicity
+screen_a1_working %>%
+  count(a01_ethnic) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Ethnicity = a01_ethnic, N = n) %>%
+  kable(format = "html", caption = "Ethnicity Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+#Hispanic
+screen_a1_working %>%
+  count(a01_hisplat) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Hisp_Lat = a01_hisplat, N = n) %>%
+  kable(format = "html", caption = "Hispanic/Latino Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+
+# Education
+screen_a1_working %>%
+  count(a01_educ) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Education = a01_educ, N = n) %>%
+  kable(format = "html", caption = "Education Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Employment
+screen_a1_working %>%
+  count(a01_work) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(`Employment Status` = a01_work, N = n) %>%
+  kable(format = "html", caption = "Employment Status Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Income
+screen_a1_working %>%
+  count(a01_income) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Income = a01_income, N = n) %>%
+  kable(format = "html", caption = "Income Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+#state
+screen_a1_working %>%
+  count(a01_state) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(State = a01_state, N = n) %>%
+  kable(format = "html", caption = "State Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+```
+
+### Final Participants (n = 88)
+
+```{r}
+
+
+summary(master$a01_age)
+
+#legal sex
+master %>%
+  count(a01_legalsex) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(`Legal Sex` = a01_legalsex, N = n) %>%
+  kable(format = "html", caption = "Legal Sex Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE)
+
+# Gender Identity
+master %>%
+  count(a01_gender) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(`Gender Identity` = a01_gender, N = n) %>%
+  kable(format = "html", caption = "Gender Identity Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Race
+master %>%
+  count(a01_race) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Race = a01_race, N = n) %>%
+  kable(format = "html", caption = "Race Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Ethnicity
+master %>%
+  count(a01_ethnic) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Ethnicity = a01_ethnic, N = n) %>%
+  kable(format = "html", caption = "Ethnicity Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# hispaniclatino
+master %>%
+  count(a01_hisplat) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Hispanic_Latino = a01_hisplat, N = n) %>%
+  kable(format = "html", caption = "Hispanic/Latino Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Education
+master %>%
+  count(a01_educ) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Education = a01_educ, N = n) %>%
+  kable(format = "html", caption = "Education Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Employment
+master %>%
+  count(a01_work) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(`Employment Status` = a01_work, N = n) %>%
+  kable(format = "html", caption = "Employment Status Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+# Income
+master %>%
+  count(a01_income) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Income = a01_income, N = n) %>%
+  kable(format = "html", caption = "Income Distribution") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE)
+
+```
+
+## Psilocybin Experience {.tabset}
+
+### Screened sample 
+
+```{r}
+screen_a1_working %>%
+  count(a01_psychexp) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Experience = a01_psychexp, N = n) %>%
+  kable(format = "html", caption = "Experience with Psilocybin or Psychedelics") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_nonord) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Non_ordinary_states = a01_nonord, N = n) %>%
+  kable(format = "html", caption = "Experience with Non-ordinary States of Consciousness") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_nonord) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Non_ordinary_states = a01_nonord, N = n) %>%
+  kable(format = "html", caption = "Experience with Non-ordinary States of Consciousness") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_prepare) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Preparedness = a01_prepare, N = n) %>%
+  kable(format = "html", caption = "Preparedness") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_barrier) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Barriers = a01_barrier, N = n) %>%
+  kable(format = "html", caption = "Barriers to Psilocybin Services Access") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+```
+
+### Final sample
+
+```{r}
+master %>%
+  count(a01_psychexp) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Experience = a01_psychexp, N = n) %>%
+  kable(format = "html", caption = "Experience with Psilocybin or Psychedelics") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+master %>%
+  count(a01_nonord) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Non_ordinary_states = a01_nonord, N = n) %>%
+  kable(format = "html", caption = "Experience with Non-ordinary States of Consciousness") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+master %>%
+  count(a01_nonord) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Non_ordinary_states = a01_nonord, N = n) %>%
+  kable(format = "html", caption = "Experience with Non-ordinary States of Consciousness") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+master %>%
+  count(a01_prepare) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Preparedness = a01_prepare, N = n) %>%
+  kable(format = "html", caption = "Preparedness") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+master %>%
+  count(a01_barrier) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Barriers = a01_barrier, N = n) %>%
+  kable(format = "html", caption = "Barriers to Psilocybin Services Access") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+```
+
+## Mental health Experience {.tabset}
+
+### Screened participants
+
+```{r}
+screen_a1_working %>%
+  count(a01_pastther) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Past_Therapy = a01_pastther, N = n) %>%
+  kable(format = "html", caption = "Mental health therapy (past)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_nowther) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Now_Therapy = a01_nowther, N = n) %>%
+  kable(format = "html", caption = "Mental health therapy (current)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_pastout) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Past_Outpatient = a01_pastout, N = n) %>%
+  kable(format = "html", caption = "Mental health Outpatient (past)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_nowout) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Now_Outpatient = a01_nowout, N = n) %>%
+  kable(format = "html", caption = "Mental health Outpatient (current)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_famhx) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Family_History = a01_famhx, N = n) %>%
+  kable(format = "html", caption = "Family History of Psychotic Disorders") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_hosp) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Hospitalized = a01_hosp, N = n) %>%
+  kable(format = "html", caption = "Hospitalized for Mental Health") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_nowharm) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Current_harm = a01_nowharm, N = n) %>%
+  kable(format = "html", caption = "Thoughts of causing harm (current)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_pastharm) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Past_harm = a01_pastharm, N = n) %>%
+  kable(format = "html", caption = "Thoughts of causing harm (past)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_support) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Support = a01_support, N = n) %>%
+  kable(format = "html", caption = "Mental health support system") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+```
+
+### Final participants
+
+```{r}
+
+```
+
+## Medical History {.tabset}
+
+### Screened Particiapnts
+
+```{r}
+
+screen_a1_working %>%
+  count(a01_nowrx) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Medication = a01_nowrx, N = n) %>%
+  kable(format = "html", caption = "Current medications") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_pastrx) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Medication = a01_pastrx, N = n) %>%
+  kable(format = "html", caption = "Past medications") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+
+screen_a1_working %>%
+  count(a01_lithium) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Lithium = a01_lithium, N = n) %>%
+  kable(format = "html", caption = "Lithium in the past 30 days") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+
+screen_a1_working %>%
+  count(a01_pregnant) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Pregnant= a01_pregnant, N = n) %>%
+  kable(format = "html", caption = "Currently Pregnant") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_breastfeed) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Breastfeed = a01_breastfeed, N = n) %>%
+  kable(format = "html", caption = "Currently Breastfeeding") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_hxbp) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Blood_pressure = a01_hxbp, N = n) %>%
+  kable(format = "html", caption = "History of Uncontrolled Blood Pressure or Heart Disease") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_vet) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Veteran = a01_vet, N = n) %>%
+  kable(format = "html", caption = "Served in the Armed Forces") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_group) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Group = a01_group, N = n) %>%
+  kable(format = "html", caption = "Interest in Group Research") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+
+screen_a1_working %>%
+  count(a01_finaid) %>%
+  mutate(Percent = percent(n / sum(n))) %>%
+  rename(Financial_aid = a01_finaid, N = n) %>%
+  kable(format = "html", caption = "Interest in Financial Aid") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = FALSE) 
+```
+
+### Final Participants
+
+```{r}
+
+```
+
+## WHO {.tabset}
+
+### Screened participants
+
+```{r}
+
+#who 1
+who1_data <- screen_a1_working %>%
+  count(a01_who1, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+
+ggplot(who1_data, aes(x = reorder(a01_who1, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +  # adds 10% space on top
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 1",
+    subtitle = "Over the last 2 weeks, I have felt cheerful and in good spirits"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#who2
+who2_data <- screen_a1_working %>%
+  count(a01_who2, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+ggplot(who2_data, aes(x = reorder(a01_who2, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + 
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 2",
+    subtitle = "Over the last 2 weeks, I have felt calm and relaxed"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#who3
+who3_data <- screen_a1_working %>%
+  count(a01_who3, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+ggplot(who3_data, aes(x = reorder(a01_who3, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + 
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 3",
+    subtitle = "Over the last 2 weeks, I have felt alive and vigorous"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#who4
+who4_data <- screen_a1_working %>%
+  count(a01_who4, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+ggplot(who4_data, aes(x = reorder(a01_who4, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + 
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 4",
+    subtitle = "Over the last 2 weeks, I woke up feeling fresh and rested"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#who5
+who5_data <- screen_a1_working %>%
+  count(a01_who5, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+ggplot(who5_data, aes(x = reorder(a01_who5, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + 
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 5",
+    subtitle = "Over the last 2 weeks, my daily life has been filled with things that interest me"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### Final participants
+
+```{r}
+#who 1
+who1_data <- master %>%
+  count(a01_who1, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+
+ggplot(who1_data, aes(x = reorder(a01_who1, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +  # adds 10% space on top
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 1",
+    subtitle = "Over the last 2 weeks, I have felt cheerful and in good spirits"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#who2
+who2_data <- master %>%
+  count(a01_who2, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+ggplot(who2_data, aes(x = reorder(a01_who2, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + 
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 2",
+    subtitle = "Over the last 2 weeks, I have felt calm and relaxed"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#who3
+who3_data <- master %>%
+  count(a01_who3, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+ggplot(who3_data, aes(x = reorder(a01_who3, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + 
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 3",
+    subtitle = "Over the last 2 weeks, I have felt alive and vigorous"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#who4
+who4_data <- master %>%
+  count(a01_who4, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+ggplot(who4_data, aes(x = reorder(a01_who4, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + 
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 4",
+    subtitle = "Over the last 2 weeks, I woke up feeling fresh and rested"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#who5
+who5_data <- master %>%
+  count(a01_who5, name = "Count") %>%
+  mutate(Percent = Count / sum(Count),
+         Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")"))
+
+ggplot(who5_data, aes(x = reorder(a01_who5, -Count), y = Count)) +
+  geom_col(fill = "#4682B4") +
+  geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + 
+  labs(
+    x = "Responses",
+    y = "Number of Participants",
+    title = "WHO 5",
+    subtitle = "Over the last 2 weeks, my daily life has been filled with things that interest me"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+## PHQ {.tabset}
+
+### Screened participants - frequency
+
+
+```{r}
+
+phq_labels <- c(
+  a01_phq1 = "Little interest or pleasure in doing things",
+  a01_phq2 = "Feeling down, depressed, or hopeless",
+  a01_phq3 = "Trouble falling/staying asleep or sleeping too much",
+  a01_phq4 = "Feeling tired or having little energy",
+  a01_phq5 = "Poor appetite or overeating",
+  a01_phq6 = "Feeling bad about yourself",
+  a01_phq7 = "Trouble concentrating",
+  a01_phq8 = "Moving/speaking slowly or being fidgety/restless",
+  a01_phq9 = "Thoughts that you'd be better off dead or hurting yourself"
+)
+
+
+phq_plots_screen <- imap(phq_labels, function(label, var) {
+  screen_a1_working %>%
+    count(.data[[var]], name = "Count") %>%
+    mutate(
+      Percent = Count / sum(Count),
+      Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")")
+    ) %>%
+    ggplot(aes(x = reorder(.data[[var]], -Count), y = Count)) +
+    geom_col(fill = "#4682B4") +
+    geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    labs(
+      x = "Responses",
+      y = "Number of Participants",
+      title = paste0("PHQ ", gsub(".*phq", "", var)),
+      subtitle = label
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+})
+
+
+#loop
+walk(phq_plots_screen, print)  
+
+##
+
+
+
+phq_items <- paste0("a01_phq", 1:9)
+
+screen_a1_working <- screen_a1_working %>%
+  mutate(across(all_of(phq_items), ~ recode(. , !!!phq_response_map), .names = "{.col}_num")) %>%
+  mutate(phq_screen_total = rowSums(across(ends_with("_num")), na.rm = TRUE))
+
+
+summary(screen_a1_working$phq_screen_total)
+
+
+```
+
+
+
+### Final participants
+
+```{r}
+
+
+phq_plots_master <- imap(phq_labels, function(label, var) {
+  master %>%
+    count(.data[[var]], name = "Count") %>%
+    mutate(
+      Percent = Count / sum(Count),
+      Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")")
+    ) %>%
+    ggplot(aes(x = reorder(.data[[var]], -Count), y = Count)) +
+    geom_col(fill = "#4682B4") +
+    geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    labs(
+      x = "Responses",
+      y = "Number of Participants",
+      title = paste0("PHQ ", gsub(".*phq", "", var)),
+      subtitle = label
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+})
+
+
+#loop
+walk(phq_plots_master, print)  
+```
+
+### PHQ Change
+
+```{r}
+
+```
+
+
+## GAD {.tabset}
+
+### Screened participants
+
+```{r}
+# GAD labels
+gad_labels <- c(
+  a01_gad1 = "Feeling nervous, anxious, or on edge",
+  a01_gad2 = "Not being able to stop or control worrying",
+  a01_gad3 = "Worrying too much about different things",
+  a01_gad4 = "Trouble relaxing",
+  a01_gad5 = "Being so restless that it is hard to sit still",
+  a01_gad6 = "Becoming easily annoyed or irritable",
+  a01_gad7 = "Feeling afraid as if something awful might happen",
+  a01_gad8 = "How difficult have these problems made it for you to function"
+)
+
+
+gad_plots_screen <- imap(gad_labels, function(label, var) {
+  screen_a1_working %>%
+    count(.data[[var]], name = "Count") %>%
+    mutate(
+      Percent = Count / sum(Count),
+      Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")")
+    ) %>%
+    ggplot(aes(x = reorder(.data[[var]], -Count), y = Count)) +
+    geom_col(fill = "#4682B4") +
+    geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    labs(
+      x = "Responses",
+      y = "Number of Participants",
+      title = paste0("GAD ", gsub(".*gad", "", var)),
+      subtitle = label
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+})
+
+
+walk(gad_plots_screen, print)
+
+```
+
+### Final participants
+
+```{r}
+gad_plots_master <- imap(gad_labels, function(label, var) {
+  master %>%
+    count(.data[[var]], name = "Count") %>%
+    mutate(
+      Percent = Count / sum(Count),
+      Label = paste0(Count, " (", percent(Percent, accuracy = 1), ")")
+    ) %>%
+    ggplot(aes(x = reorder(.data[[var]], -Count), y = Count)) +
+    geom_col(fill = "#4682B4") +
+    geom_text(aes(label = Label), vjust = -0.5, size = 3.5) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    labs(
+      x = "Responses",
+      y = "Number of Participants",
+      title = paste0("GAD ", gsub(".*gad", "", var)),
+      subtitle = label
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+})
+
+
+walk(gad_plots_master, print)
+```
+
+### GAD-7 Change
+
+```{r}
+
+```
+
+## Qual Analyses {.tabset}
+
+### 
+
+```{r}
+a01_reason_text_data <- screen_a1 %>%
+  select(a01_reason) %>%
+  unnest_tokens(word, a01_reason) %>%
+  anti_join(stop_words) %>%  # remove common words like "the", "and", etc.
+  count(word, sort = TRUE)
+
+# View top words
+head(a01_reason_text_data, 20)
+
+#word cloud
+wordcloud(words = a01_reason_text_data$word, freq = a01_reason_text_data$n, min.freq = 15)
+
+wordcloud(
+  words = a01_reason_text_data$word,
+  freq = a01_reason_text_data$n,
+  min.freq = 15,
+  max.words = 100,
+  random.order = FALSE,
+  rot.per = 0.15,
+  colors = brewer.pal(8, "Dark2"),
+  scale = c(4, 0.5)  
+)
+
+title("Reasons for Seeking Treatment", cex.main = 1.0)
+
+#
+
+
+# Preprocess and cast to document-term matrix
+dtm <- screen_a1 %>%
+  mutate(doc_id = row_number()) %>%
+  unnest_tokens(word, a01_reason) %>%
+  anti_join(stop_words) %>%
+  count(doc_id, word) %>%
+  cast_dtm(doc_id, word, n)
+
+# Run LDA topic model (e.g., 3 topics)
+lda_model <- LDA(dtm, k = 3, control = list(seed = 1234))
+topics <- tidy(lda_model, matrix = "beta")
+
+# Top words per topic
+top_terms <- topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>%
+  ungroup()
+
+top_terms
+
+```
+
